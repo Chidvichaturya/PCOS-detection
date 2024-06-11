@@ -1,0 +1,53 @@
+import matplotlib.pyplot as pltimport numpy as npimport cv2import osimport PILimport tensorflow as tfimport randomimport osimport cv2import numpy as npfrom tqdm import tqdm  # For progress barfrom tensorflow import kerasfrom tensorflow.keras import layersfrom tensorflow.keras.models import Sequential# setting up input and output directoriesinput_dir_infected='PCOS-IMAGE-DATASET/PCOS/infected'input_dir_notinfected='PCOS-IMAGE-DATASET/PCOS/notinfected'
+output_dir_pcos='Augumented/Augumented_PCOS'output_dir_notpcos='Augumented/Augumented_notPCOS'os.makedirs(output_dir_pcos, exist_ok=True)os.makedirs(output_dir_notpcos, exist_ok=True)
+# displaying PCOS imagesimport keras.utils as imageimg_pcos=image.load_img('PCOS-IMAGE-DATASET/PCOS/infected/img1.jpg',target_size=(200,200))img_pcos#displaying Non -PCOS imagesimport keras.utils as imageimg_notpcos=image.load_img('PCOS-IMAGE-DATASET/PCOS/notinfected/img1.jpeg',target_size=(200,200))img_notpcos#Data Augumentation on both the classesfrom PIL import Image
+
+# Define the data augmentation functionsdef apply_augmentation(image, augmentation_function):    augmented_image = augmentation_function(image)
+    return augmented_image
+def random_flip(image):    return cv2.flip(image, np.random.randint(0, 3))
+def random_rotation(image, max_angle=130):    angle = np.random.randint(-max_angle, max_angle)    height, width = image.shape[:2]    rotation_matrix = cv2.getRotationMatrix2D((width / 2, height / 2), angle, 1)    return cv2.warpAffine(image, rotation_matrix, (width, height))
+
+###Data augumentation for PCOS images
+
+# List all image files in the input directoryimage_files = [f for f in os.listdir(input_dir_infected) if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.jpeg')]
+# Define the number of augmented images to generate per original imagenum_augmentations = 5
+# Perform data augmentationfor image_file in tqdm(image_files, desc="Augmenting images"):    image_path = os.path.join(input_dir_infected, image_file)    image = cv2.imread(image_path)
+    for i in range(num_augmentations):        augmented_image = apply_augmentation(image, random_flip)  # You can replace this function        augmented_image = apply_augmentation(augmented_image, random_rotation)
+        augmented_filename = f"augmented_{i+1}_{image_file}"        augmented_filepath = os.path.join(output_dir_pcos, augmented_filename)        cv2.imwrite(augmented_filepath, augmented_image)
+###Data augumentation without PCOS
+
+# List all image files in the input directoryimage_files = [f for f in os.listdir(input_dir_notinfected) if f.endswith('.jpg') or f.endswith('.png')]
+# Define the number of augmented images to generate per original imagenum_augmentations = 5
+# Perform data augmentationfor image_file in tqdm(image_files, desc="Augmenting images"):    image_path = os.path.join(input_dir_notinfected, image_file)    image = cv2.imread(image_path)
+    for i in range(num_augmentations):        augmented_image = apply_augmentation(image, random_flip)  # You can replace this function        augmented_image = apply_augmentation(augmented_image, random_rotation)
+        augmented_filename = f"augmented_{i+1}_{image_file}"        augmented_filepath = os.path.join(output_dir_notpcos, augmented_filename)        cv2.imwrite(augmented_filepath, augmented_image)
+import tensorflow as tfimport os
+# Avoid OOM errors by setting GPU Memory Consumption Growthgpus = tf.config.experimental.list_physical_devices('GPU')for gpu in gpus:    tf.config.experimental.set_memory_growth(gpu, True)
+import numpy as npfrom matplotlib import pyplot as pltdata = tf.keras.utils.image_dataset_from_directory('Augumented')data_previous = tf.keras.utils.image_dataset_from_directory('PCOS-IMAGE-DATASET')data_iterator = data.as_numpy_iterator()batch = data_iterator.next()
+fig, ax = plt.subplots(ncols=4, figsize=(20,20))for idx, img in enumerate(batch[0][:4]):    ax[idx].imshow(img.astype(int))    ax[idx].title.set_text(batch[1][idx])#Split Datasetdata = data.map(lambda x,y: (x/255, y))data.as_numpy_iterator().next()train_size = int(len(data)*.7)val_size = int(len(data)*.2)test_size = int(len(data)*.1)train = data.take(train_size)val = data.skip(train_size).take(val_size)test = data.skip(train_size+val_size).take(test_size)print(len(data))print(train_size)print(val_size)print(test_size)train#Model Building deep cnnfrom tensorflow.keras.models import Sequentialfrom tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Dropoutmodel = Sequential()#Building Deep CNN modelmodel.add(Conv2D(16, (3,3), 1, activation='relu', input_shape=(256,256,3)))model.add(MaxPooling2D())# model.add(Conv2D(32, (3,3), 1, activation='relu'))# model.add(MaxPooling2D())# model.add(Conv2D(16, (3,3), 1, activation='relu'))# model.add(MaxPooling2D())model.add(Flatten())model.add(Dense(256, activation='relu'))model.add(Dense(1, activation='sigmoid'))model.compile('adam', loss=tf.losses.BinaryCrossentropy(), metrics=['accuracy'])model.summary()#Training the modellogdir='logs'tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)hist = model.fit(train, epochs=2, validation_data=val, callbacks=[tensorboard_callback])#Plot Performancefig = plt.figure()plt.plot(hist.history['loss'], color='teal', label='loss')plt.plot(hist.history['val_loss'], color='orange', label='val_loss')fig.suptitle('Loss', fontsize=20)plt.legend(loc="upper left")plt.show()fig = plt.figure()plt.plot(hist.history['accuracy'], color='teal', label='accuracy')plt.plot(hist.history['val_accuracy'], color='orange', label='val_accuracy')fig.suptitle('Accuracy', fontsize=20)plt.legend(loc="upper left")plt.show()#Evaluating the modelfrom tensorflow.keras.metrics import Precision, Recall, BinaryAccuracypre = Precision()re = Recall()acc = BinaryAccuracy()for batch in test.as_numpy_iterator():    X, y = batch    yhat = model.predict(X)    pre.update_state(y, yhat)    re.update_state(y, yhat)    acc.update_state(y, yhat)print(pre.result(), re.result(), acc.result())#Testing the modelimport cv2img = cv2.imread('PCOS-IMAGE-DATASET-main/PCOS/infected/img_0_54.jpg')plt.imshow(img)plt.show()
+resize = tf.image.resize(img, (256,256))plt.imshow(resize.numpy().astype(int))plt.show()predictions = model.predict(np.expand_dims(resize/255, 0))print(predictions)if predictions > 0.5:    print(f'not PCOS')else:    print(f'PCOS')#Save the modelfrom tensorflow.keras.models import load_modelmodel.save(os.path.join('models','imageclassifier_deepcnn.h5'))#CNN WITH LAST LAYER SVMfrom tensorflow.keras.layers import Conv2Dfrom tensorflow.keras.layers import Densefrom tensorflow.keras.regularizers import l2# Part 2 - Building the CNN# Initialising the CNNcnn = tf.keras.models.Sequential()
+# Step 1 - Convolutioncnn.add(tf.keras.layers.Conv2D(filters=32,padding="same",kernel_size=3, activation='relu', strides=2, input_shape=[256,256, 3]))
+# Step 2 - Poolingcnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
+# Adding a second convolutional layercnn.add(tf.keras.layers.Conv2D(filters=32,padding='same',kernel_size=3, activation='relu'))cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
+# Step 3 - Flatteningcnn.add(tf.keras.layers.Flatten())
+# Step 4 - Full Connectioncnn.add(tf.keras.layers.Dense(units=128, activation='relu'))
+# Step 5 - Output Layer#cnn.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))## For Binary Classificationcnn.add(Dense(1, kernel_regularizer=tf.keras.regularizers.l2(0.01),activation             ='linear'))cnn.compile(optimizer = 'adam', loss = 'hinge', metrics = ['accuracy'])cnn.summary()newmodel_svm = cnn.fit(train, epochs=2, validation_data=val, callbacks=[tensorboard_callback])# plot the lossimport matplotlib.pyplot as pltplt.plot(newmodel_svm.history['loss'], label='train loss')plt.plot(newmodel_svm.history['val_loss'], label='val loss')plt.legend()plt.show()plt.savefig('LossVal_loss')
+# plot the accuracyplt.plot(newmodel_svm.history['accuracy'], label='train acc')plt.plot(newmodel_svm.history['val_accuracy'], label='val acc')plt.legend()plt.show()plt.savefig('AccVal_acc')# save it as a h5 file
+
+from tensorflow.keras.models import load_model
+cnn.save('models/cnn_svm.h5')
+import numpy as npfrom tensorflow.keras.preprocessing import imagetest_image = image.load_img('Augumented/Augumented_PCOS/augmented_1_img1.jpg', target_size = (256,256))test_image = image.img_to_array(test_image)test_image=test_image/255test_image = np.expand_dims(test_image, axis = 0)result = cnn.predict(test_image)if result[0]<0:    print("The image belongs to PCOS PATIENT")else:    print("The image belongs to Non-Pcos Patient")import picklepickle.dump(cnn,open('model.pkl','wb'))pickle.load(open('model.pkl','rb'))                                                                                                                                                                                         give abstract for the above project                                                                                                                                             efrom keras.applications.vgg16 import preprocess_inputimport numpy as npimport tensorflow as tfimport pickleimport os 
+
+model = pickle.load(open('model.pkl', 'rb'))
+
+obj = Flask(__name__)
+
+@obj.route("/")def home():    return render_template("index.html")
+
+@obj.route("/predict/result/<int:prediction>")def result(prediction):    prediction = prediction-10    if prediction < 0:        res = "PCOS"    else:        res = "not PCOS"    return render_template("result.html", result=res)
+@obj.route('/predict', methods=['POST'])def predict():    if request.method == 'POST':        uploaded_file = request.files['image']
+        # Save the uploaded file to a temporary location        img_path = "temp_image.jpg"        uploaded_file.save(img_path)        img = image.load_img(img_path, target_size=(256, 256))        img_array = image.img_to_array(img)        img_array = img_array / 255                img_array = np.expand_dims(img_array, axis=0)        prediction = model.predict(img_array)        os.remove(img_path)        prediction = prediction+10        return redirect(url_for('result', prediction=prediction))
+    else:        return "Only POST requests are allowed"
+
+
+if __name__ == "__main__":    obj.run(debug=True)
